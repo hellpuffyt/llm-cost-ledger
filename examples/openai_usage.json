@@ -1,0 +1,13 @@
+{
+  "object": "list",
+  "data": [
+    {"start_time": "2026-06-01", "model": "gpt-4o-mini", "n_requests": 120, "n_context_tokens_total": 610000, "n_generated_tokens_total": 88000, "project_id": "proj_marketing", "api_key_id": "key_ad_copy"},
+    {"start_time": "2026-06-01", "model": "gpt-4o", "n_requests": 40, "n_context_tokens_total": 220000, "n_generated_tokens_total": 61000, "project_id": "proj_support", "api_key_id": "key_ticket_bot"},
+    {"start_time": "2026-06-02", "model": "gpt-4o-mini", "n_requests": 118, "n_context_tokens_total": 598000, "n_generated_tokens_total": 86500, "project_id": "proj_marketing", "api_key_id": "key_ad_copy"},
+    {"start_time": "2026-06-02", "model": "gpt-4o", "n_requests": 44, "n_context_tokens_total": 241000, "n_generated_tokens_total": 66000, "project_id": "proj_support", "api_key_id": "key_ticket_bot"},
+    {"start_time": "2026-06-03", "model": "gpt-4o-mini", "n_requests": 131, "n_context_tokens_total": 640000, "n_generated_tokens_total": 91000, "project_id": "proj_marketing", "api_key_id": "key_ad_copy"},
+    {"start_time": "2026-06-03", "model": "gpt-4o", "n_requests": 39, "n_context_tokens_total": 210000, "n_generated_tokens_total": 58000, "project_id": "proj_support", "api_key_id": "key_ticket_bot"},
+    {"start_time": "2026-06-04", "model": "gpt-4o-mini", "n_requests": 125, "n_context_tokens_total": 615000, "n_generated_tokens_total": 89500, "project_id": "proj_marketing", "api_key_id": "key_ad_copy"},
+    {"start_time": "2026-06-04", "model": "gpt-4o", "n_requests": 41, "n_context_tokens_total": 225000, "n_generated_tokens_total": 63000, "project_id": "proj_support", "api_key_id": "key_ticket_bot"}
+  ]
+}

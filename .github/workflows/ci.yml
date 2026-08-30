@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package with dev dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run pytest
+        run: python -m pytest -v
+
+  lint:
+    name: lint + mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package with dev dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run ruff
+        run: python -m ruff check .
+
+      - name: Run mypy (strict)
+        run: python -m mypy src tests
+
+  smoke:
+    name: smoke test installed CLI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package (no dev extras) from a fresh venv
+        run: |
+          python -m venv smoke-venv
+          smoke-venv/bin/python -m pip install .
+
+      - name: Run ingest on sample data
+        run: smoke-venv/bin/llm-cost-ledger ingest --input openai=examples/openai_usage.json
+
+      - name: Run report combining two providers with attribution
+        run: |
+          smoke-venv/bin/llm-cost-ledger report \
+            --input openai=examples/openai_usage.json \
+            --input anthropic=examples/anthropic_usage.csv \
+            --mapping examples/mapping.yaml \
+            --format table
+
+      - name: Run report JSON output and validate it parses
+        run: |
+          smoke-venv/bin/llm-cost-ledger report \
+            --input openai=examples/openai_usage.json \
+            --format json > /tmp/report.json
+          python -c "import json; data = json.load(open('/tmp/report.json')); assert data and data[0]['cost_usd'] > 0"
+
+      - name: Verify the --max-cost-per-request gate actually gates (expect exit 2)
+        run: |
+          set +e
+          smoke-venv/bin/llm-cost-ledger report --input openai=examples/openai_usage.json --max-cost-per-request 0.0000001
+          code=$?
+          set -e
+          if [ "$code" -ne 2 ]; then
+            echo "expected exit code 2, got $code"
+            exit 1
+          fi
+
+      - name: Run drift detection and verify it flags the known regression (expect exit 3)
+        run: |
+          set +e
+          smoke-venv/bin/llm-cost-ledger drift \
+            --input anthropic=examples/drift_usage.csv \
+            --baseline-start 2026-06-01 --baseline-end 2026-06-06 \
+            --current-start 2026-06-08 --current-end 2026-06-13
+          code=$?
+          set -e
+          if [ "$code" -ne 3 ]; then
+            echo "expected exit code 3 (regression detected), got $code"
+            exit 1
+          fi

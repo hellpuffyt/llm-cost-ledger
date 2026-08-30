@@ -1,0 +1,9 @@
+# Example pricing override file. Only the models listed here are changed;
+# every other model still falls back to the bundled default table.
+models:
+  gpt-4o-mini:
+    input_per_million: 0.20
+    output_per_million: 0.80
+  my-internal-finetune:
+    input_per_million: 1.00
+    output_per_million: 2.00

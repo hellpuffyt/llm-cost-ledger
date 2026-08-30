@@ -1,0 +1,32 @@
+# Example attribution mapping-rule file.
+# Rules are evaluated top to bottom; the first match wins.
+# Patterns are glob-style (fnmatch) and case-insensitive.
+
+rules:
+  - match:
+      provider: openai
+      raw_project_id: "proj_marketing"
+    tags:
+      project: marketing
+      feature: ad-copy-generator
+
+  - match:
+      provider: openai
+      raw_project_id: "proj_support"
+    tags:
+      project: support
+      feature: ticket-triage-bot
+
+  - match:
+      provider: anthropic
+      model: "claude-3-5-sonnet*"
+    tags:
+      project: engineering
+      feature: code-review-assistant
+
+  - match:
+      provider: anthropic
+      model: "claude-3-5-haiku*"
+    tags:
+      project: engineering
+      feature: docs-summarizer

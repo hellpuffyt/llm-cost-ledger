@@ -1,0 +1,49 @@
+# Default pricing table for llm-cost-ledger.
+#
+# PRICES CHANGE. This file is a snapshot taken at publish time and will go
+# stale. Before you trust any dollar figure this tool prints, check your
+# provider's current pricing page and override entries with your own
+# --pricing config file (values there take priority; unspecified models
+# fall back to this default table). See README.md > Configuration.
+#
+# All rates are USD per 1,000,000 tokens.
+
+models:
+  gpt-4o:
+    input_per_million: 2.50
+    output_per_million: 10.00
+  gpt-4o-mini:
+    input_per_million: 0.15
+    output_per_million: 0.60
+  gpt-4-turbo:
+    input_per_million: 10.00
+    output_per_million: 30.00
+  gpt-3.5-turbo:
+    input_per_million: 0.50
+    output_per_million: 1.50
+  o1:
+    input_per_million: 15.00
+    output_per_million: 60.00
+  o1-mini:
+    input_per_million: 1.10
+    output_per_million: 4.40
+  claude-3-5-sonnet-20241022:
+    input_per_million: 3.00
+    output_per_million: 15.00
+    cache_read_per_million: 0.30
+    cache_write_per_million: 3.75
+  claude-3-5-haiku-20241022:
+    input_per_million: 0.80
+    output_per_million: 4.00
+    cache_read_per_million: 0.08
+    cache_write_per_million: 1.00
+  claude-3-opus-20240229:
+    input_per_million: 15.00
+    output_per_million: 75.00
+    cache_read_per_million: 1.50
+    cache_write_per_million: 18.75
+  claude-3-haiku-20240307:
+    input_per_million: 0.25
+    output_per_million: 1.25
+    cache_read_per_million: 0.03
+    cache_write_per_million: 0.30

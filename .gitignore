@@ -13,3 +13,4 @@ venv/
 htmlcov/
 *.log
 .DS_Store
+dist_check/

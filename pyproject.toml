@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
-    { name = "Prabesh Sharma", email = "hellpuffyyt@gmail.com" }
+    { name = "Prabesh Sharma" }
 ]
 keywords = ["llm", "cost", "finops", "openai", "anthropic", "observability", "cli"]
 classifiers = [

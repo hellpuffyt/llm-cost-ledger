@@ -18,6 +18,7 @@ still reported for visibility.
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
@@ -73,7 +74,7 @@ def _daily_cost_per_request(
 def _daily_series(day_buckets: dict[date, list[AttributedRecord]]) -> list[float]:
     series = []
     for day_records in day_buckets.values():
-        total_cost = sum(r.cost_usd for r in day_records)
+        total_cost = math.fsum(r.cost_usd for r in day_records)
         total_requests = sum(r.request_count for r in day_records)
         if total_requests > 0:
             series.append(total_cost / total_requests)

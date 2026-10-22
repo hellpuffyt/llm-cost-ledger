@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from dataclasses import asdict
 from datetime import date, datetime
@@ -21,7 +22,7 @@ from llm_cost_ledger.drift import DriftResult, detect_drift
 from llm_cost_ledger.ingest import IngestError, merge, parse_export
 from llm_cost_ledger.models import AttributedRecord, UsageRecord
 from llm_cost_ledger.pricing import PricingError, PricingTable
-from llm_cost_ledger.report import aggregate, filter_by_date, render
+from llm_cost_ledger.report import aggregate, align_table, filter_by_date, format_usd, render
 
 _INPUT_HELP = (
     "Usage export to ingest, formatted as PROVIDER=PATH, e.g. "
@@ -56,6 +57,8 @@ def _load_records(input_specs: list[str]) -> list[UsageRecord]:
         try:
             raw = path.read_text(encoding="utf-8")
             groups.append(parse_export(provider, raw))
+        except UnicodeDecodeError as exc:
+            raise CliError(f"failed to read {path}: not valid UTF-8 ({exc.reason})") from exc
         except IngestError as exc:
             raise CliError(f"failed to parse {path} as {provider!r}: {exc}") from exc
     return merge(*groups)
@@ -66,7 +69,7 @@ def _load_pricing(pricing_path: str | None) -> PricingTable:
         if pricing_path is None:
             return PricingTable.load_default()
         return PricingTable.from_file(pricing_path)
-    except (PricingError, OSError) as exc:
+    except (PricingError, OSError, UnicodeDecodeError) as exc:
         raise CliError(f"failed to load pricing config: {exc}") from exc
 
 
@@ -75,7 +78,7 @@ def _load_rules(mapping_path: str | None) -> AttributionRules:
         return AttributionRules.empty()
     try:
         return AttributionRules.from_file(mapping_path)
-    except (AttributionError, OSError) as exc:
+    except (AttributionError, OSError, UnicodeDecodeError) as exc:
         raise CliError(f"failed to load mapping config: {exc}") from exc
 
 
@@ -102,7 +105,10 @@ def _build_attributed(args: argparse.Namespace) -> list[AttributedRecord]:
     records = _load_records(args.input)
     pricing = _load_pricing(args.pricing)
     rules = _load_rules(args.mapping)
-    return attribute_and_price(records, pricing, rules)
+    try:
+        return attribute_and_price(records, pricing, rules)
+    except PricingError as exc:
+        raise CliError(str(exc)) from exc
 
 
 def _write_output(text: str, output_path: str | None) -> None:
@@ -159,6 +165,10 @@ def cmd_report(args: argparse.Namespace) -> int:
 def _drift_result_to_dict(result: DriftResult) -> dict[str, object]:
     d = asdict(result)
     d["group_key"] = list(result.group_key)
+    # A group with no baseline spend has an infinite relative change, which
+    # json.dumps would emit as the non-standard token `Infinity`.
+    if not math.isfinite(result.relative_change):
+        d["relative_change"] = None
     return d
 
 
@@ -175,18 +185,29 @@ def cmd_drift(args: argparse.Namespace) -> int:
             "drift requires --baseline-start --baseline-end --current-start --current-end"
         )
 
+    assert baseline_start and baseline_end and current_start and current_end
+    if baseline_start > baseline_end or current_start > current_end:
+        raise CliError("each period's start date must not be after its end date")
+    if baseline_end >= current_start and current_end >= baseline_start:
+        raise CliError(
+            "the baseline and current periods overlap; the t-test needs disjoint periods"
+        )
+
     attributed = _build_attributed(args)
     baseline = filter_by_date(attributed, baseline_start, baseline_end)
     current = filter_by_date(attributed, current_start, current_end)
 
-    results = detect_drift(
-        baseline,
-        current,
-        group_by=group_by,
-        alpha=args.alpha,
-        min_relative_increase=args.min_relative_increase,
-        min_days=args.min_days,
-    )
+    try:
+        results = detect_drift(
+            baseline,
+            current,
+            group_by=group_by,
+            alpha=args.alpha,
+            min_relative_increase=args.min_relative_increase,
+            min_days=args.min_days,
+        )
+    except ValueError as exc:
+        raise CliError(str(exc)) from exc
 
     if args.format == "json":
         text = json.dumps([_drift_result_to_dict(r) for r in results], indent=2)
@@ -227,39 +248,28 @@ def cmd_drift(args: argparse.Namespace) -> int:
             )
         text = buf.getvalue()
     else:
-        lines = [
-            "  ".join(
-                [
-                    *group_by,
-                    "baseline$/req",
-                    "current$/req",
-                    "change",
-                    "p",
-                    "days(b/c)",
-                    "status",
-                ]
-            )
-        ]
+        headers = [*group_by, "baseline$/req", "current$/req", "change", "p", "days(b/c)", "status"]
+        rows: list[list[str]] = []
         for r in results:
-            status = "insufficient-data" if r.insufficient_data else (
-                "REGRESSION" if r.is_regression else "ok"
+            status = (
+                "insufficient-data"
+                if r.insufficient_data
+                else ("REGRESSION" if r.is_regression else "ok")
             )
             change_str = "n/a" if r.relative_change == float("inf") else f"{r.relative_change:+.1%}"
             p_str = "n/a" if r.p_value is None else f"{r.p_value:.4f}"
-            lines.append(
-                "  ".join(
-                    [
-                        *r.group_key,
-                        f"{r.baseline_mean_cost_per_request:.6f}",
-                        f"{r.current_mean_cost_per_request:.6f}",
-                        change_str,
-                        p_str,
-                        f"{r.baseline_days}/{r.current_days}",
-                        status,
-                    ]
-                )
+            rows.append(
+                [
+                    *r.group_key,
+                    format_usd(r.baseline_mean_cost_per_request, 6),
+                    format_usd(r.current_mean_cost_per_request, 6),
+                    change_str,
+                    p_str,
+                    f"{r.baseline_days}/{r.current_days}",
+                    status,
+                ]
             )
-        text = "\n".join(lines)
+        text = "\n".join(align_table(headers, rows))
 
     _write_output(text, args.output)
 

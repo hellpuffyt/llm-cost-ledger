@@ -24,6 +24,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 from collections.abc import Iterable
 from datetime import date, datetime, timezone
 from typing import Any
@@ -36,12 +37,31 @@ class IngestError(ValueError):
 
 
 def _to_int(value: Any, field_name: str) -> int:
+    """A non-negative whole-number count. ``12.0`` is accepted; ``12.7``,
+    ``inf``, ``nan`` and negatives are rejected rather than truncated."""
     if value is None or value == "":
         return 0
-    try:
-        return int(float(value))
-    except (TypeError, ValueError) as exc:
-        raise IngestError(f"expected an integer for {field_name!r}, got {value!r}") from exc
+    if isinstance(value, bool):
+        raise IngestError(f"expected an integer for {field_name!r}, got {value!r}")
+    if isinstance(value, int):
+        number = value
+    else:
+        text = str(value).strip()
+        try:
+            number = int(text)
+        except ValueError:
+            try:
+                as_float = float(text)
+            except ValueError as exc:
+                raise IngestError(f"expected an integer for {field_name!r}, got {value!r}") from exc
+            if not math.isfinite(as_float) or not as_float.is_integer():
+                raise IngestError(
+                    f"expected a whole number for {field_name!r}, got {value!r}"
+                ) from None
+            number = int(as_float)
+    if number < 0:
+        raise IngestError(f"{field_name!r} must not be negative, got {value!r}")
+    return number
 
 
 def _first(row: dict[str, Any], *names: str) -> Any:
@@ -72,19 +92,30 @@ def _load_rows(raw: str) -> list[dict[str, Any]]:
     """Load a JSON (dict-with-data-list, or list) or CSV payload into rows."""
     stripped = raw.lstrip()
     if stripped.startswith("{") or stripped.startswith("["):
-        parsed = json.loads(raw)
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise IngestError(f"invalid JSON: {exc}") from exc
         if isinstance(parsed, dict):
             for key in ("data", "records", "usage", "items"):
                 if key in parsed and isinstance(parsed[key], list):
-                    return list(parsed[key])
-            raise IngestError(
-                "JSON object payload must contain a data/records/usage/items list"
-            )
+                    return _require_objects(parsed[key])
+            raise IngestError("JSON object payload must contain a data/records/usage/items list")
         if isinstance(parsed, list):
-            return list(parsed)
+            return _require_objects(parsed)
         raise IngestError("JSON payload must be an object or a list")
-    reader = csv.DictReader(io.StringIO(raw))
-    return [dict(row) for row in reader]
+    try:
+        reader = csv.DictReader(io.StringIO(raw))
+        return [dict(row) for row in reader]
+    except csv.Error as exc:
+        raise IngestError(f"invalid CSV: {exc}") from exc
+
+
+def _require_objects(items: list[Any]) -> list[dict[str, Any]]:
+    for i, item in enumerate(items):
+        if not isinstance(item, dict):
+            raise IngestError(f"row {i} must be a JSON object, got {type(item).__name__}")
+    return list(items)
 
 
 def parse_openai_export(raw: str) -> list[UsageRecord]:
@@ -125,7 +156,7 @@ def parse_openai_export(raw: str) -> list[UsageRecord]:
                     raw_api_key_id=str(api_key_id) if api_key_id else None,
                 )
             )
-        except IngestError as exc:
+        except (IngestError, ValueError) as exc:
             raise IngestError(f"openai export row {i}: {exc}") from exc
     return records
 
@@ -170,7 +201,7 @@ def parse_anthropic_export(raw: str) -> list[UsageRecord]:
                     raw_project_id=str(workspace_id) if workspace_id else None,
                 )
             )
-        except IngestError as exc:
+        except (IngestError, ValueError) as exc:
             raise IngestError(f"anthropic export row {i}: {exc}") from exc
     return records
 

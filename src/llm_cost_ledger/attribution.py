@@ -75,7 +75,10 @@ class AttributionRules:
 
     @classmethod
     def from_yaml_text(cls, text: str) -> AttributionRules:
-        data = yaml.safe_load(text) or {}
+        try:
+            data = yaml.safe_load(text) or {}
+        except yaml.YAMLError as exc:
+            raise AttributionError(f"mapping file is not valid YAML: {exc}") from exc
         if not isinstance(data, dict) or "rules" not in data:
             raise AttributionError("mapping file must be a mapping with a top-level 'rules' key")
         raw_rules = data["rules"]

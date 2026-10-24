@@ -5,13 +5,43 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
+from decimal import ROUND_HALF_UP, Decimal
 
 from llm_cost_ledger.models import AttributedRecord
 
 VALID_DIMENSIONS = ("project", "feature", "model", "provider", "day")
+
+
+def format_usd(amount: float, places: int) -> str:
+    """Rounds half-up for display, the way money is conventionally rounded.
+
+    ``f"{x:.4f}"`` rounds the binary float, so an exact 0.58245 that is
+    stored as 0.58244999... would print as 0.5824. Going through the
+    shortest decimal repr first rounds the value the user actually computed.
+    """
+    if not math.isfinite(amount):
+        return str(amount)
+    quantum = Decimal(1).scaleb(-places)
+    return str(Decimal(repr(amount)).quantize(quantum, rounding=ROUND_HALF_UP))
+
+
+def align_table(headers: list[str], data_lines: list[list[str]]) -> list[str]:
+    """Left-aligned columns with a dashed rule under the header."""
+    widths = [
+        max(len(headers[i]), *(len(line[i]) for line in data_lines))
+        if data_lines
+        else len(headers[i])
+        for i in range(len(headers))
+    ]
+    lines = ["  ".join(h.ljust(widths[i]) for i, h in enumerate(headers))]
+    lines.append("  ".join("-" * widths[i] for i in range(len(headers))))
+    for line in data_lines:
+        lines.append("  ".join(cell.ljust(widths[i]) for i, cell in enumerate(line)))
+    return lines
 
 
 @dataclass(frozen=True)
@@ -58,7 +88,7 @@ def aggregate(records: list[AttributedRecord], group_by: tuple[str, ...]) -> lis
         rows.append(
             ReportRow(
                 dimensions=dict(zip(group_by, key, strict=True)),
-                total_cost_usd=sum(r.cost_usd for r in group_records),
+                total_cost_usd=math.fsum(r.cost_usd for r in group_records),
                 total_requests=sum(r.request_count for r in group_records),
                 total_input_tokens=sum(r.usage.input_tokens for r in group_records),
                 total_output_tokens=sum(r.usage.output_tokens for r in group_records),
@@ -87,26 +117,16 @@ def render_table(rows: list[ReportRow], group_by: tuple[str, ...]) -> str:
             str(row.total_requests),
             str(row.total_input_tokens),
             str(row.total_output_tokens),
-            f"{row.total_cost_usd:.4f}",
-            f"{row.cost_per_request:.6f}",
+            format_usd(row.total_cost_usd, 4),
+            format_usd(row.cost_per_request, 6),
         ]
         for row in rows
     ]
-    widths = [
-        max(len(headers[i]), *(len(line[i]) for line in data_lines))
-        if data_lines
-        else len(headers[i])
-        for i in range(len(headers))
-    ]
-    lines = []
-    lines.append("  ".join(h.ljust(widths[i]) for i, h in enumerate(headers)))
-    lines.append("  ".join("-" * widths[i] for i in range(len(headers))))
-    for line in data_lines:
-        lines.append("  ".join(cell.ljust(widths[i]) for i, cell in enumerate(line)))
-    total_cost = sum(row.total_cost_usd for row in rows)
+    lines = align_table(headers, data_lines)
+    total_cost = math.fsum(row.total_cost_usd for row in rows)
     total_requests = sum(row.total_requests for row in rows)
     lines.append("")
-    lines.append(f"TOTAL: {total_cost:.4f} USD across {total_requests} requests")
+    lines.append(f"TOTAL: {format_usd(total_cost, 4)} USD across {total_requests} requests")
     return "\n".join(lines)
 
 
@@ -117,8 +137,8 @@ def render_json(rows: list[ReportRow], group_by: tuple[str, ...]) -> str:
             "requests": row.total_requests,
             "input_tokens": row.total_input_tokens,
             "output_tokens": row.total_output_tokens,
-            "cost_usd": round(row.total_cost_usd, 6),
-            "cost_per_request": round(row.cost_per_request, 8),
+            "cost_usd": float(format_usd(row.total_cost_usd, 6)),
+            "cost_per_request": float(format_usd(row.cost_per_request, 8)),
         }
         for row in rows
     ]
@@ -144,8 +164,8 @@ def render_csv(rows: list[ReportRow], group_by: tuple[str, ...]) -> str:
                 "requests": row.total_requests,
                 "input_tokens": row.total_input_tokens,
                 "output_tokens": row.total_output_tokens,
-                "cost_usd": f"{row.total_cost_usd:.6f}",
-                "cost_per_request": f"{row.cost_per_request:.8f}",
+                "cost_usd": format_usd(row.total_cost_usd, 6),
+                "cost_per_request": format_usd(row.cost_per_request, 8),
             }
         )
     return buffer.getvalue()

@@ -151,7 +151,7 @@ project      feature                model                       requests  input_
 -----------  ---------------------  --------------------------  --------  ---------  ----------  --------  --------
 support      ticket-triage-bot      gpt-4o                      164       896000     248000      4.7200    0.028780
 engineering  code-review-assistant  claude-3-5-sonnet-20241022  238       601000     169000      4.4377    0.018646
-marketing    ad-copy-generator      gpt-4o-mini                 494       2463000    355000      0.5824    0.001179
+marketing    ad-copy-generator      gpt-4o-mini                 494       2463000    355000      0.5825    0.001179
 engineering  docs-summarizer        claude-3-5-haiku-20241022   302       361000     72500       0.5788    0.001917
 
 TOTAL: 10.3189 USD across 1198 requests
@@ -182,6 +182,21 @@ claude-3-5-sonnet-20241022  0.010800       0.016207      +50.1%  0.0000  6/6    
 ```
 
 ## Configuration
+
+### How costs are computed and rounded
+
+Each record's cost is computed exactly in decimal arithmetic
+(`tokens x rate / 1,000,000`) and sums use `math.fsum`, so totals match a
+hand calculation. Displayed amounts are rounded half-up (`0.58245` prints as
+`0.5825`). Cache-read and cache-write tokens use their own rates when the
+pricing entry has them -- including an explicit `0` -- and the input rate
+when it does not. Prices must be finite and non-negative.
+
+Token counts must be non-negative whole numbers (`12` or `12.0`); `12.7`,
+`inf` or `-5` are rejected with an error rather than truncated. A row with
+tokens but a request count of `0` (or no request column) is counted as one
+request so cost per request stays defined. `drift` requires the baseline and
+current periods not to overlap.
 
 ### Pricing (`--pricing config.yaml`)
 
@@ -237,9 +252,10 @@ never silently disappears from a report.
 ## Testing
 
 ```bash
-.venv/Scripts/python.exe -m pytest
-.venv/Scripts/python.exe -m ruff check .
-.venv/Scripts/python.exe -m mypy
+# macOS/Linux (on Windows use .venv\Scripts\python.exe)
+.venv/bin/python -m pytest
+.venv/bin/python -m ruff check .
+.venv/bin/python -m mypy src tests
 ```
 
 All tests run fully offline against fixture files in `examples/` and

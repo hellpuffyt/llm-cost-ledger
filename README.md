@@ -4,8 +4,6 @@ Attribute LLM API spend per project, feature and model from provider usage
 exports, and flag cost-per-request regressions only when they are
 statistically significant and large enough to matter.
 
-<img src="docs/assets/overview.svg" width="100%" alt="Data flow: OpenAI and Anthropic usage exports are parsed by ingest.py, priced by pricing.py, tagged by attribution.py from mapping rules, then aggregated by report.py or compared across two periods by drift.py using Welch's t-test.">
-
 **Status:** version 0.1.0, a working command-line tool with 135 offline tests
 and CI on Linux, macOS and Windows (Python 3.10 to 3.13). It is not published
 to PyPI; install it from a clone. The bundled price table covers ten older
@@ -39,6 +37,16 @@ between two time periods to flag statistically meaningful regressions.
   not a rule of thumb) plus a minimum effect-size threshold so it only
   flags changes that are both statistically real and large enough to
   matter.
+
+## Demo
+
+<img src="docs/screenshots/report-and-drift-examples.png" width="100%" alt="Terminal capture: llm-cost-ledger report over the bundled OpenAI and Anthropic examples, attributed to four project and feature rows totalling 10.3189 USD, followed by a drift run that flags claude-3-5-sonnet at +50.1% cost per request and exits 3.">
+
+Real output of the two commands in [Examples](#examples), run on the
+synthetic files in `examples/`. The report attributes spend to the
+project and feature tags from `examples/mapping.yaml`; the drift run flags
+the Sonnet group and exits 3. The copyable commands and text output are in
+that section.
 
 ## Features
 
@@ -76,6 +84,10 @@ between two time periods to flag statistically meaningful regressions.
   spend, `drift` gates a build on detected regressions.
 
 ## Architecture
+
+<img src="docs/assets/overview.svg" width="100%" alt="Diagram of the data flow: OpenAI and Anthropic usage exports are parsed by ingest.py, priced by pricing.py, tagged by attribution.py from mapping rules, then aggregated by report.py or compared across two periods by drift.py using Welch's t-test.">
+
+*Diagram of the modules a `report` or `drift` run passes through.*
 
 ```
 provider export file(s)

@@ -1,8 +1,15 @@
 # llm-cost-ledger
 
-Attribute LLM API spend per project, feature, and model from provider usage
-exports -- and get alerted when cost per request actually regresses, not
-just wobbles.
+Attribute LLM API spend per project, feature and model from provider usage
+exports, and flag cost-per-request regressions only when they are
+statistically significant and large enough to matter.
+
+<img src="docs/assets/overview.svg" width="100%" alt="Data flow: OpenAI and Anthropic usage exports are parsed by ingest.py, priced by pricing.py, tagged by attribution.py from mapping rules, then aggregated by report.py or compared across two periods by drift.py using Welch's t-test.">
+
+**Status:** version 0.1.0, a working command-line tool with 135 offline tests
+and CI on Linux, macOS and Windows (Python 3.10 to 3.13). It is not published
+to PyPI; install it from a clone. The bundled price table covers ten older
+OpenAI and Anthropic models only (see [Pricing](#pricing---pricing-configyaml)).
 
 ## What
 
@@ -37,10 +44,10 @@ between two time periods to flag statistically meaningful regressions.
 
 * Ingests two provider export shapes out of the box:
   * **OpenAI-style** usage export (JSON with a `data` list, or an equivalent
-    CSV) -- `start_time`, `model`, `n_requests`, `n_context_tokens_total`,
+    CSV): `start_time`, `model`, `n_requests`, `n_context_tokens_total`,
     `n_generated_tokens_total`, `project_id`, `api_key_id`.
   * **Anthropic-style** usage/cost export (CSV, or an equivalent JSON list)
-    -- `date`, `workspace_id`, `model`, `input_tokens`, `output_tokens`,
+    with `date`, `workspace_id`, `model`, `input_tokens`, `output_tokens`,
     `cache_creation_input_tokens`, `cache_read_input_tokens`,
     `request_count`.
   * Both parsers accept a handful of alias column/field names so minor
@@ -50,7 +57,7 @@ between two time periods to flag statistically meaningful regressions.
   attribution ever runs.
 * A bundled default pricing table (USD per 1M input/output tokens, with
   optional cache-read/cache-write rates), fully overridable by your own
-  YAML file. **Prices change -- always check your provider's current
+  YAML file. **Prices change, so always check your provider's current
   pricing page.** See [Configuration](#configuration).
 * Attribution via a mapping-rule file: glob-style rules match on provider,
   model, and the provider's own project/workspace/api-key identifiers, and
@@ -96,9 +103,11 @@ Each module is independently unit-tested and has no knowledge of the CLI;
 
 ## Installation
 
-Requires Python 3.10+.
+Requires Python 3.10 or newer. The only runtime dependency is PyYAML.
 
 ```bash
+git clone https://github.com/hellpuffyt/llm-cost-ledger.git
+cd llm-cost-ledger
 python -m venv .venv
 # Windows
 .venv\Scripts\python.exe -m pip install -e ".[dev]"
@@ -106,7 +115,10 @@ python -m venv .venv
 .venv/bin/python -m pip install -e ".[dev]"
 ```
 
-This installs the `llm-cost-ledger` console script into the venv.
+This installs the `llm-cost-ledger` console script into the venv
+(`.venv/bin/llm-cost-ledger`, or `.venv\Scripts\llm-cost-ledger.exe` on
+Windows). Activate the venv, or call the script by that path, to run the
+examples below. `pip install .` without `-e ".[dev]"` gives you just the CLI.
 
 ## Usage
 
@@ -119,9 +131,22 @@ llm-cost-ledger drift --input anthropic=usage.csv \
     --current-start 2026-06-08 --current-end 2026-06-13
 ```
 
-`--input` is repeatable and takes `PROVIDER=PATH` (provider is `openai` or
-`anthropic`). Every subcommand accepts `--pricing PATH` and `--mapping
-PATH` to override the defaults.
+`ingest` prints the normalised records as JSON, which is useful for checking
+how a new export file was parsed. `report` and `drift` do the pricing and
+attribution.
+
+| Option | Applies to | Meaning |
+|--------|------------|---------|
+| `--input PROVIDER=PATH` | all | Repeatable. Provider is `openai` or `anthropic`. |
+| `--output PATH` | all | Write to a file instead of stdout. |
+| `--pricing PATH` | report, drift | Pricing YAML merged over the bundled table. |
+| `--mapping PATH` | report, drift | Attribution rules. Without it every record is `unattributed`. |
+| `--group-by` | report, drift | Comma-separated. `report`: `project,feature,model,provider,day`. `drift`: the same without `day`. Default `project,feature,model`. |
+| `--format` | report, drift | `table` (default), `json` or `csv`. |
+| `--start-date`, `--end-date` | report | Inclusive `YYYY-MM-DD` filter. |
+| `--max-cost-per-request USD` | report | Exit 2 if any group exceeds it. |
+| `--baseline-start/-end`, `--current-start/-end` | drift | Required, inclusive dates. The periods must not overlap. |
+| `--alpha`, `--min-relative-increase`, `--min-days` | drift | Defaults `0.05`, `0.10`, `3`. |
 
 ### Exit codes
 
@@ -174,6 +199,8 @@ llm-cost-ledger drift \
   --group-by model --format table
 ```
 
+`drift` also writes `1 regression(s) detected` to stderr and exits 3.
+
 ```
 model                       baseline$/req  current$/req  change  p       days(b/c)  status
 --------------------------  -------------  ------------  ------  ------  ---------  ----------
@@ -189,7 +216,7 @@ Each record's cost is computed exactly in decimal arithmetic
 (`tokens x rate / 1,000,000`) and sums use `math.fsum`, so totals match a
 hand calculation. Displayed amounts are rounded half-up (`0.58245` prints as
 `0.5825`). Cache-read and cache-write tokens use their own rates when the
-pricing entry has them -- including an explicit `0` -- and the input rate
+pricing entry has them (including an explicit `0`), and the input rate
 when it does not. Prices must be finite and non-negative.
 
 Token counts must be non-negative whole numbers (`12` or `12.0`); `12.7`,
@@ -204,6 +231,19 @@ Values in your file override the bundled default table
 (`src/llm_cost_ledger/data/default_pricing.yaml`) per-model; models you do
 not mention still fall back to the default. Rates are USD per 1,000,000
 tokens.
+
+Model names are matched exactly. The bundled table has `gpt-4o`,
+`gpt-4o-mini`, `gpt-4-turbo`, `gpt-3.5-turbo`, `o1`, `o1-mini`,
+`claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022`,
+`claude-3-opus-20240229` and `claude-3-haiku-20240307`. Any other model in
+an export (a newer model, or a dated snapshot name) stops `report` and
+`drift` with exit 1:
+
+```
+error: no price entry for model 'claude-sonnet-4-5'. Add it to a --pricing config file (see README Configuration section).
+```
+
+Add those models to your override file.
 
 ```yaml
 models:
@@ -258,20 +298,42 @@ never silently disappears from a report.
 .venv/bin/python -m mypy src tests
 ```
 
-All tests run fully offline against fixture files in `examples/` and
+All 135 tests run offline against fixture files in `examples/` and
 `tests/`; nothing in the test suite makes a network call or reads an API
-key.
+key. CI (`.github/workflows/ci.yml`) runs pytest on Linux, macOS and Windows
+for Python 3.10 to 3.13, ruff and strict mypy, and a smoke job that installs
+the package into a fresh venv and checks that the report gate exits 2 and the
+drift example exits 3.
+
+## Limitations
+
+* Only the two export shapes above are parsed. Other providers need a new
+  parser in `ingest.py`.
+* Drift compares daily means, so it needs at least `--min-days` days with
+  traffic in each period. Rows are bucketed by their `date` field.
+* The bundled prices are a snapshot and will go stale; treat dollar figures
+  as estimates until you have checked them against your own price file.
+* Only increases are flagged. A drop in cost per request is reported as
+  `ok`.
 
 ## Security
 
 * This tool never makes a network request and never reads or stores an API
-  key -- it only reads local export files you point it at.
+  key. It only reads local export files you point it at. YAML is loaded
+  with `yaml.safe_load`.
 * Only synthetic, fabricated data is used in tests and examples; no real
   usage exports, account identifiers, or credentials are included in this
   repository.
 * Input parsing raises clear errors on malformed data rather than guessing;
   malformed CSV/JSON should never crash with a stack trace an end user
   can't act on. Please open an issue if you find one that does.
+
+Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the setup and the checks to run
+before a pull request. Changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
